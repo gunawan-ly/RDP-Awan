@@ -174,6 +174,10 @@ try {
         Write-Error 'ERROR: RDP_PASSWORD GitHub Actions Secret is not configured. (exit 61)'
         exit 61
     }
+    if ($rdpUser.Length -gt 20 -or $rdpUser -match '[\\/\[\]":;|+=,?*<>@]') {
+        Write-Error 'ERROR: RDP_USERNAME tidak valid untuk akun Windows lokal (maks 20 karakter, tanpa \ / [ ] " : ; | + = , ? * < > @). (exit 63)'
+        exit 63
+    }
 
     $securePass = ConvertTo-SecureString $rdpPass -AsPlainText -Force
     $existing = Get-LocalUser -Name $rdpUser -ErrorAction SilentlyContinue
@@ -195,7 +199,13 @@ try {
         Write-Output "RDP user: '$rdpUser' already in 'Remote Desktop Users' (idempotent, skip)."
     }
 } catch {
-    Write-Error "ERROR: Gagal provisioning akun RDP. (exit 62)"
+    # Sertakan detail error agar bisa didiagnosis, TAPI scrub dulu nilai password
+    # agar tidak bocor ke log (PRD §8). Username tidak sensitif, boleh tampil.
+    $detail = "$($_.Exception.Message)"
+    if (-not [string]::IsNullOrWhiteSpace($rdpPass)) {
+        $detail = $detail -replace [regex]::Escape($rdpPass), '(redacted)'
+    }
+    Write-Error "ERROR: Gagal provisioning akun RDP: $detail (exit 62)"
     exit 62
 } finally {
     # Bersihkan plaintext dari memori sejauh yang praktis.

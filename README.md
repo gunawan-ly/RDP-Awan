@@ -45,7 +45,7 @@ GitHub Actions Secrets (`... → Secrets → New repository secret`):
 
 | Secret | Keterangan |
 |---|---|
-| `RDP_PASSWORD` | Password akun RDP. Diisi owner dengan password yang diinginkan. Tidak pernah ditulis di repo/log. |
+| `RDP_PASSWORD` | Password akun RDP. Diisi owner dengan password yang diinginkan. Wajib memenuhi Windows password policy (min. 8 karakter, kombinasi huruf besar + huruf kecil + angka + simbol) agar `New-LocalUser` tidak menolaknya. Tidak pernah ditulis di repo/log. |
 | `TAILSCALE_AUTHKEY` | Auth key Tailscale (ephemeral). Alur existing, tidak diubah. |
 
 Hermes-Agent (Secondary) juga butuh `SUPABASE_URL` + `SUPABASE_KEY` seperti sebelumnya.
