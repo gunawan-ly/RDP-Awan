@@ -142,6 +142,22 @@ hostname.tailxxxx.ts.net
    (keduanya diketik manual di client, tidak tersimpan di repo).
 5. Connect.
 
+### Display (resolusi & skala)
+
+Berbeda dengan Chrome Remote Desktop (yang menayangkan layar host sehingga
+resolusi diubah di sisi host), pada RDP **ukuran layar sesi ditentukan oleh
+client saat konek**. Itu sebabnya menu Display di dalam sesi remote terkunci —
+ini perilaku normal RDP, bukan bug setup. Tidak ada yang perlu diubah di sisi
+host/GitHub workflow untuk ini.
+
+Atur dari Windows App (pengaturan koneksi PC → Display), sebelum atau saat konek:
+
+- **Resolution**: pilih resolusi eksplisit (mis. 1920x1080) atau mode fit-to-window.
+- **Scale/DPI**: atur skala tampilan mengikuti layar client.
+- **Fullscreen / resize jendela**: sesi mengikuti ukuran jendela secara otomatis
+  (dynamic resolution) — cara tercepat mendapat tampilan yang pas.
+- Simpan sebagai pengaturan koneksi PC tersebut agar berlaku setiap konek.
+
 > Jangan menyimpan password Windows di repository.
 > Penyimpanan credential lokal di Windows App adalah pilihan user di client,
 > bukan sesuatu yang dilakukan script.

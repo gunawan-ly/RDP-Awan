@@ -127,5 +127,8 @@ if ($magicDns) {
 }
 Write-Output ''
 Write-Output '(Jangan gunakan public IP. RDP hanya via tailnet Tailscale.)'
+Write-Output '(Display terkunci di sesi remote = normal. Atur resolusi & skala di'
+Write-Output ' Windows App pengaturan PC -> Display; resize/fullscreen jendela'
+Write-Output ' menyesuaikan otomatis.)'
 Write-Output $line
 exit 0
