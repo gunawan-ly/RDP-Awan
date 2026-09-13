@@ -1,10 +1,9 @@
 # RDP-Awan — Tailscale + Native Windows RDP + Windows App
 
-> Workflow default sekarang: **Tailscale → Windows RDP → Windows App**.
-> RDP **tidak** diekspos ke Internet/public IP. Tanpa port-forwarding router.
-> Tanpa membuka TCP 3389 ke Internet.
+> Akses RDP privat melalui tailnet Tailscale.
+> Tanpa public IP, tanpa port-forwarding router, tanpa membuka TCP 3389 ke Internet.
 
-## Architecture
+## Cara kerja
 
 ```
 PC CLIENT (Windows App + Tailscale, tailnet yang sama)
@@ -15,40 +14,35 @@ PC CLIENT (Windows App + Tailscale, tailnet yang sama)
 PC TARGET (Windows RDP host: TermService + NLA, firewall Tailscale-only)
 ```
 
-Yang TIDAK dilakukan:
+## Mulai cepat (GitHub Actions)
 
-```
-Client -- Internet -- Public IP -- TCP 3389 -- Windows   (DILARANG)
-```
+1. Isi Variables/Secrets di `Settings → Secrets and variables → Actions` (lihat tabel di bawah).
+2. Buka tab **Actions** → pilih workflow → **Run workflow**:
+   - **Windows 11 - RDP (Primary)** — RDP saja.
+   - **Hermes-Agent - RDP + Memory Sync (Secondary)** — RDP + sync memori Supabase.
+3. Lihat log step `Show Tailscale IP` → blok `RDP READY` berisi IP/MagicDNS.
+4. Konek dari Windows App (lihat [Client Setup](#client-setup-windows-app)).
 
-## Requirements
+Catatan: GitHub-hosted runner berhenti otomatis setelah ±6 jam (limit GitHub).
+Untuk sesi permanen, gunakan self-hosted runner atau jalankan
+`setup_rdp_tailscale.ps1` langsung di PC target ([Setup manual](#setup-manual)).
 
-- Windows edisi yang mendukung Remote Desktop host:
-  Pro / Enterprise / Education / Server (Home / Starter / Single Language tidak didukung).
-- Akun Tailscale / tailnet (target + client harus di tailnet yang sama).
-- Tailscale terinstall di target dan client.
-- Microsoft Windows App / RDP client yang kompatibel di sisi client.
-- Jalankan setup sebagai **Administrator**.
+## Konfigurasi (Variables & Secrets)
 
-## GitHub Actions Configuration (kredensial RDP)
+| Nama | Jenis | Dipakai oleh | Keterangan |
+|---|---|---|---|
+| `RDP_USERNAME` | Variable | Primary, Secondary | Username akun RDP (tidak sensitif). |
+| `RDP_PASSWORD` | Secret | Primary, Secondary | Password akun RDP. Hanya ada di Secrets — tidak pernah ditulis di repo/log. Wajib memenuhi Windows password policy (lihat bawah). |
+| `TAILSCALE_AUTHKEY` | Secret (ephemeral) | Primary, Secondary | Auth key Tailscale. Node otomatis hilang dari tailnet saat runner mati. |
+| `SUPABASE_URL`, `SUPABASE_KEY` | Secrets | Secondary saja | Untuk sync memori Hermes-Agent. |
 
-Akun RDP di-provision otomatis oleh `Enable-RdpHost.ps1` dari environment.
-Tidak ada password di source code — password hanya ada di GitHub Secrets.
+Syarat `RDP_PASSWORD` (jika dilanggar, provisioning gagal dengan pesan jelas):
 
-GitHub Actions Variables (`Settings → Secrets and variables → Actions → Variables`):
-
-| Variable | Contoh nilai | Keterangan |
-|---|---|---|
-| `RDP_USERNAME` | `Awanophile` | Username akun RDP (tidak sensitif, boleh tampil di docs) |
-
-GitHub Actions Secrets (`... → Secrets → New repository secret`):
-
-| Secret | Keterangan |
-|---|---|
-| `RDP_PASSWORD` | Password akun RDP. Diisi owner dengan password yang diinginkan. Wajib memenuhi Windows password policy (min. 8 karakter, kombinasi huruf besar + huruf kecil + angka + simbol) agar `New-LocalUser` tidak menolaknya. Tidak pernah ditulis di repo/log. |
-| `TAILSCALE_AUTHKEY` | Auth key Tailscale (ephemeral). Alur existing, tidak diubah. |
-
-Hermes-Agent (Secondary) juga butuh `SUPABASE_URL` + `SUPABASE_KEY` seperti sebelumnya.
+- Min. 8 karakter; kombinasi huruf besar + huruf kecil + angka + simbol.
+- **Tidak boleh mengandung username** (atau bagian nama >2 karakter) — ini sub-aturan
+  complexity Windows yang paling sering menjegal. Contoh: username `rdpuser`
+  tidak boleh dipasangkan dengan password yang mengandung `rdpuser`.
+- Gunakan nilai yang belum pernah di-commit ke git.
 
 Alur konsumsi:
 
@@ -56,61 +50,44 @@ Alur konsumsi:
 vars.RDP_USERNAME ──→ env RDP_USERNAME ──┐
 secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─┴─→ Enable-RdpHost.ps1
                                               (validasi → create/update user via ADSI →
-                                               Remote Desktop Users; in-memory only)
+                                               grup Remote Desktop Users; in-memory only)
 ```
 
-Manual setup (di luar Actions):
+## Setup manual
+
+Di PC target, PowerShell sebagai **Administrator**, dari folder repo:
 
 ```powershell
-# Prefer environment variables; jangan taruh password di command line.
+# Kredensial hanya via environment (jangan taruh password di command line).
 $env:RDP_USERNAME = 'nama-user-rdp'
 $env:RDP_PASSWORD = '<password>'
 powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
-```
 
-## Setup Target PC (satu entry-point)
-
-```powershell
-# PowerShell sebagai Administrator, dari folder repo:
-powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
-
-# Jika Tailscale belum terinstall dan ingin diinstall otomatis dari URL resmi:
+# Jika Tailscale belum terinstall:
 $env:TAILSCALE_AUTHKEY = 'tskey-...'   # opsional, bisa juga via -AuthKey
 powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1 -InstallTailscale
 ```
 
-Urutan `setup_rdp_tailscale.ps1` (PRD Fase 13, idempotent):
+Urutan `setup_rdp_tailscale.ps1` (idempotent — aman dijalankan berulang):
 
-1. Check Administrator
-2. Check Windows edition
-3. Check Tailscale (`tailscale.exe`)
-4. Install Tailscale (hanya dengan `-InstallTailscale`, dari `https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe`)
-5. Pastikan Tailscale service berjalan (service resmi, tanpa custom persistence)
-6. Pastikan Tailscale authenticated (`tailscale up --authkey=...` hanya jika key tersedia;
-   jika belum login, script berhenti dengan instruksi `tailscale up` manual)
-7. Enable RDP (`Enable-RdpHost.ps1`)
-8. Enable NLA (bagian dari modul yang sama, selalu ON)
-9. Configure firewall Tailscale-only (`Set-RdpFirewallTailscale.ps1`)
-10. Check TermService Running
-11. Obtain Tailscale IP (`Get-TailscaleIp.ps1`)
-12. Print final connection info (format `RDP READY`)
+1. Check Administrator → 2. Check Windows edition → 3. Check Tailscale →
+   4. Install Tailscale (hanya dengan `-InstallTailscale`) →
+   5. Tailscale service → 6. Tailscale authenticated →
+   7. Enable RDP + NLA + provisioning akun RDP (`Enable-RdpHost.ps1`) →
+   8. Firewall Tailscale-only (`Set-RdpFirewallTailscale.ps1`) →
+   9. Check TermService → 10. Tampilkan Tailscale IP (`Get-TailscaleIp.ps1`)
 
-Modul individual juga bisa dijalankan terpisah:
+Modul individual / port kustom:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Enable-RdpHost.ps1
 powershell -ExecutionPolicy Bypass -File .\Set-RdpFirewallTailscale.ps1
 powershell -ExecutionPolicy Bypass -File .\Get-TailscaleIp.ps1
+
+$env:RDP_PORT = '3389'   # default; ganti bila perlu custom port
 ```
 
-Custom port (kompatibilitas `RDP_PORT` lama, default `3389`):
-
-```powershell
-$env:RDP_PORT = '3389'
-powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
-```
-
-Contoh output `Get-TailscaleIp.ps1`:
+Contoh output (`RDP READY`):
 
 ```
 ========================================
@@ -135,93 +112,72 @@ hostname.tailxxxx.ts.net
 
 1. Install + login Tailscale di PC client (tailnet **sama** dengan target).
 2. Buka Microsoft Windows App → **Add PC**.
-3. PC name:
-   - `100.x.x.x` (dari output di atas), atau
-   - `hostname.tailxxxx.ts.net` (MagicDNS jika tersedia).
+3. PC name: `100.x.x.x` atau `hostname.tailxxxx.ts.net` (dari output di atas).
 4. Credentials: username = nilai `RDP_USERNAME`, password = nilai `RDP_PASSWORD`
-   (keduanya diketik manual di client, tidak tersimpan di repo).
+   (diketik manual di client, tidak tersimpan di repo).
 5. Connect.
 
 ### Display (resolusi & skala)
 
-Berbeda dengan Chrome Remote Desktop (yang menayangkan layar host sehingga
-resolusi diubah di sisi host), pada RDP **ukuran layar sesi ditentukan oleh
-client saat konek**. Itu sebabnya menu Display di dalam sesi remote terkunci —
-ini perilaku normal RDP, bukan bug setup. Tidak ada yang perlu diubah di sisi
-host/GitHub workflow untuk ini.
+Pada RDP, **ukuran layar sesi ditentukan oleh client**, bukan host — itu sebabnya
+menu Display di dalam sesi remote terkunci (perilaku normal, bukan bug).
+Berbeda dengan Chrome Remote Desktop yang menayangkan layar host.
 
-Atur dari Windows App (pengaturan koneksi PC → Display), sebelum atau saat konek:
+Atur dari Windows App (pengaturan koneksi PC → Display):
 
-- **Resolution**: pilih resolusi eksplisit (mis. 1920x1080) atau mode fit-to-window.
-- **Scale/DPI**: atur skala tampilan mengikuti layar client.
-- **Fullscreen / resize jendela**: sesi mengikuti ukuran jendela secara otomatis
-  (dynamic resolution) — cara tercepat mendapat tampilan yang pas.
-- Simpan sebagai pengaturan koneksi PC tersebut agar berlaku setiap konek.
+- **Resolution**: pilih eksplisit (mis. 1920x1080) atau fit-to-window.
+- **Scale/DPI**: mengikuti layar client.
+- **Fullscreen / resize jendela**: sesi mengikuti otomatis (dynamic resolution).
 
-> Jangan menyimpan password Windows di repository.
-> Penyimpanan credential lokal di Windows App adalah pilihan user di client,
-> bukan sesuatu yang dilakukan script.
+## Requirements
+
+- Windows Pro / Enterprise / Education / Server
+  (Home / Starter / Single Language tidak mendukung RDP host).
+- Akun Tailscale/tailnet (target + client satu tailnet).
+- Tailscale di target dan client; Windows App di client.
+- Setup dijalankan sebagai **Administrator**.
 
 ## Security
 
-- RDP hanya dari `100.64.0.0/10` (range CGNAT resmi Tailscale) via rule
-  `Allow RDP from Tailscale only`. Tidak ada `ALLOW TCP 3389 FROM ANYWHERE`.
-- Legacy rule publik `Allow RDP TCP 3389 ... profile=any` dihapus otomatis oleh
-  `Set-RdpFirewallTailscale.ps1`.
-- NLA selalu ON. Windows Firewall (`MpsSvc`) selalu Running, tidak pernah di-disable.
-- Tidak menonaktifkan Defender, tidak membuat hidden user, tidak mengubah password
-  akun lain di luar akun RDP yang di-provision,
-  tidak membuat scheduled-task / Run-key / service custom tersembunyi.
-- Secret tidak di-hardcode: `TAILSCALE_AUTHKEY`, `RDP_PASSWORD` dibaca dari
-  environment / GitHub Secrets, tidak pernah dicetak ke log
-  (auth key di-redact saat `tailscale up`; password hanya di memori via ADSI,
-  tanpa lewat command-line/file).
-- Jangan melakukan port-forwarding router atau membuka 3389 ke Internet.
+- Firewall `Allow RDP from Tailscale only`: RDP hanya dari `100.64.0.0/10`
+  (range resmi Tailscale). Rule publik lama (`profile=any`) dihapus otomatis.
+  Tidak ada `ALLOW TCP 3389 FROM ANYWHERE`.
+- NLA selalu ON; Windows Firewall (`MpsSvc`) selalu Running.
+- Akun RDP = user biasa, grup `Remote Desktop Users` saja (bukan Administrators).
+  Akun internal runner tidak diubah/dihapus.
+- Kredensial hanya di environment/Secrets; tidak dicetak ke log
+  (auth key di-redact, password hanya di memori, tanpa command-line/file).
+- Tidak menonaktifkan Defender; tanpa persistence tersembunyi
+  (tanpa scheduled-task / Run-key / service custom).
+- Tanpa port-forwarding; tanpa RDP publik.
 
-## Files
+## File repo
 
-| File | Status | Keterangan |
-|---|---|---|
-| `setup_rdp_tailscale.ps1` | ADDED (entry-point) | Orkestrasi 12 langkah PRD |
-| `Enable-RdpHost.ps1` | MODIFIED | Enable RDP + NLA + TermService + provisioning akun RDP dari env (cek admin + edisi) |
-| `Set-RdpFirewallTailscale.ps1` | ADDED | Firewall Tailscale-only, hapus legacy `profile=any` |
-| `Get-TailscaleIp.ps1` | ADDED | Tampilkan Tailscale IP / MagicDNS format `RDP READY` |
-| `enable_rdp_and_open_port.bat` | MODIFIED (deprecated wrapper) | Diteruskan ke 2 modul `.ps1` aman; jangan dipakai langsung |
-| `get_public_ip.bat` | MODIFIED (deprecated untuk RDP) | Dipertahankan untuk non-RDP; RDP pakai Tailscale IP |
-| `anydesk_manage.ps1` | MODIFIED (header deprecated) | Tidak dipanggil setup/workflows baru |
-| `.github/workflows/Windows 11 - RDP.yml` (`Windows 11 - RDP (Primary)`) | MODIFIED | CRD dihapus, diganti RDP Tailscale-only |
-| `.github/workflows/Hermes-Agent.yml` | MODIFIED | CRD dihapus, diganti RDP Tailscale-only; cache + Supabase dipertahankan |
-| `Downloads.bat` | MODIFIED | Baris password plaintext dihapus; provisioning via `Enable-RdpHost.ps1` |
-| `sync_memory.py` | KEPT | Pull/push Supabase via env, tidak terkait RDP |
-| `timelimit.py`, `loop.bat`, `show.bat` | KEPT | Utilitas non-remote-access |
+| File | Fungsi |
+|---|---|
+| `setup_rdp_tailscale.ps1` | Entry-point setup (orkestrasi 10 langkah di atas) |
+| `Enable-RdpHost.ps1` | Enable RDP + NLA + TermService + provisioning akun RDP |
+| `Set-RdpFirewallTailscale.ps1` | Firewall RDP khusus Tailscale |
+| `Get-TailscaleIp.ps1` | Tampilkan IP/MagicDNS format `RDP READY` |
+| `Downloads.bat` | Install essentials (tanpa kredensial) |
+| `sync_memory.py` | Sync memori Supabase (Secondary) |
+| `.github/workflows/Windows 11 - RDP.yml` | Workflow Primary |
+| `.github/workflows/Hermes-Agent.yml` | Workflow Secondary |
+| `enable_rdp_and_open_port.bat`, `get_public_ip.bat`, `anydesk_manage.ps1` | Legacy/deprecated (lihat bawah) |
+| `timelimit.py`, `loop.bat`, `show.bat` | Utilitas non-remote-access |
 
-## Legacy / Deprecated (PRD Fase 19)
+## Alur workflow
 
-- **FreeRDP remote workflow** (`freerdp` / `xfreerdp` / `wfreerdp`):
-  tidak ditemukan di working copy ini (hanya disebut di PRD).
-  Keputusan: tidak ada dependency FreeRDP untuk remote-access utama; tidak ada
-  source upstream yang dihapus karena memang tidak ada.
-- **AnyDesk workflow** (`anydesk_manage.ps1`): keluar dari default.
-  File dipertahankan untuk diagnostik manual saja.
-- **Public-IP based RDP** (`get_public_ip.bat`, `api.ipify.org`):
-  tidak lagi dipakai untuk alamat RDP. Gunakan Tailscale IP / MagicDNS.
-- **Public firewall RDP rule** (`profile=any` di `enable_rdp_and_open_port.bat` lama):
-  dihapus/diganti rule Tailscale-only. File `.bat` lama menjadi wrapper deprecated.
-- **Chrome Remote Desktop** (`chromeremotedesktophost.msi`, `remoting_start_host --code --pin=123456`):
-  dihapus total dari kedua workflow. Bukan dependency lagi.
-  Target akhir: `Tailscale + native Windows RDP + Microsoft Windows App`,
-  bukan `Tailscale + CRD + RDP` maupun `CRD + RDP`.
+Kedua workflow: Checkout → validasi kredensial → restore cache → `Downloads.bat` →
+desktop config → install + `tailscale up` → `Enable-RDP` → firewall → tampilkan IP →
+keep-alive loop → save cache (Secondary: + pull/push Supabase).
 
-## GitHub Workflows
+## Legacy / Deprecated
 
-Kedua workflow (`Windows 11 - RDP.yml` = Primary, `Hermes-Agent.yml` = Secondary + Memory Sync) sekarang:
-
-1. Checkout → validasi konfigurasi kredensial → restore cache → `Downloads.bat` → desktop config.
-2. Install + `tailscale up` (auth via `${{ secrets.TAILSCALE_AUTHKEY }}`).
-3. `Enable-RdpHost.ps1` (env dari `vars.RDP_USERNAME` / `secrets.RDP_PASSWORD`) → `Set-RdpFirewallTailscale.ps1` → `Get-TailscaleIp.ps1`.
-4. Keep-alive loop (pesan Tailscale + Windows RDP).
-5. Save cache (dan push Supabase memory untuk Hermes-Agent).
-
-- Akun RDP (`RDP_USERNAME`) adalah akun terpisah dengan grup
-  `Remote Desktop Users` saja (bukan Administrators); akun internal runner
-  tidak diubah, tidak dihapus, tidak di-rename.
+- **FreeRDP** (`xfreerdp`/`wfreerdp`): tidak dipakai; tidak ada source-nya di repo ini.
+- **AnyDesk** (`anydesk_manage.ps1`): keluar dari default, hanya diagnostik manual.
+- **Public-IP RDP** (`get_public_ip.bat`): tidak dipakai untuk alamat RDP.
+- **Rule `profile=any`** (`enable_rdp_and_open_port.bat` lama): diganti rule Tailscale-only;
+  file `.bat`-nya kini wrapper deprecated.
+- **Chrome Remote Desktop**: dihapus total dari workflow. Target akhir tetap
+  `Tailscale + native Windows RDP + Windows App`.
