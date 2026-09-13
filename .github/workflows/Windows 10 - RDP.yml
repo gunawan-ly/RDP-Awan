@@ -56,8 +56,10 @@ jobs:
           Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
 
           # Jalankan Service & Login (tanpa mencetak auth key ke log)
+          # Hostname unik per-run agar run paralel tidak saling take-over nama
+          # di tailnet (PRD: reuse mekanisme resmi Tailscale).
           $env:Path += ";C:\Program Files\Tailscale"
-          tailscale up --authkey=$env:TAILSCALE_AUTHKEY --hostname="github-runner-vm"
+          tailscale up --authkey=$env:TAILSCALE_AUTHKEY --hostname="github-runner-vm-${{ github.run_id }}"
 
           Write-Output "Tailscale berhasil terhubung!"
           tailscale ip -4
