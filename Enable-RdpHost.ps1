@@ -1,7 +1,9 @@
 <#
 .SYNOPSIS
-  Enable native Windows Remote Desktop host (RDP + NLA + TermService).
-  PRD Fase 4. Idempotent. Tidak menyentuh Defender, user, password, atau persistence.
+  Enable native Windows Remote Desktop host (RDP + NLA + TermService)
+  dan provisioning akun RDP dari GitHub Actions Variable/Secret.
+  PRD Fase 4 + UPDATE TASK RDP Credentials. Idempotent.
+  Tidak menyentuh Defender, persistence, atau akun runner internal.
 
 .DESCRIPTION
   - Cek Administrator.
@@ -9,16 +11,23 @@
   - Enable RDP via fDenyTSConnections=0.
   - Enable NLA via UserAuthentication=1.
   - Pastikan TermService Start=auto dan Running.
+  - Provisioning akun RDP: baca $env:RDP_USERNAME / $env:RDP_PASSWORD
+    (GitHub Actions vars.RDP_USERNAME / secrets.RDP_PASSWORD, atau env manual).
+    Buat user bila belum ada, update password bila sudah ada,
+    tambahkan ke grup "Remote Desktop Users" SAJA (bukan Administrators).
+    Nilai kredensial tidak pernah dicetak ke output.
   - Hormati custom port via -RdpPort / env RDP_PORT (default 3389, PRD Fase 16).
   - Tidak membuka firewall di sini (lihat Set-RdpFirewallTailscale.ps1).
   - Tidak menonaktifkan security feature apapun.
+  - Tidak mengubah akun internal runner (mis. runneradmin).
 
 .PARAMETER RdpPort
   TCP port RDP. Default 3389. Bisa juga via $env:RDP_PORT.
 
 .EXAMPLE
+  $env:RDP_USERNAME = 'RdpUser'
+  $env:RDP_PASSWORD = '<password>'   # prefer env/secret, jangan command-line
   powershell -ExecutionPolicy Bypass -File .\Enable-RdpHost.ps1
-  powershell -ExecutionPolicy Bypass -File .\Enable-RdpHost.ps1 -RdpPort 3389
 #>
 [CmdletBinding()]
 param(
@@ -148,6 +157,51 @@ try {
 } catch {
     Write-Error "ERROR: Gagal mengaktifkan RDP host: $($_.Exception.Message) (exit 21)"
     exit 21
+}
+
+# --- 5. Provisioning akun RDP (otoritatif, idempotent) ---
+# Kredensial HANYA dari runtime env (GitHub Actions vars/secrets atau env manual).
+# Tidak ada password di source. Nilai tidak pernah dicetak.
+# Akun internal runner tidak disentuh; grup hanya "Remote Desktop Users".
+try {
+    $rdpUser = $env:RDP_USERNAME
+    $rdpPass = $env:RDP_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($rdpUser)) {
+        Write-Error 'ERROR: RDP_USERNAME GitHub Actions Variable is not configured. (exit 60)'
+        exit 60
+    }
+    if ([string]::IsNullOrWhiteSpace($rdpPass)) {
+        Write-Error 'ERROR: RDP_PASSWORD GitHub Actions Secret is not configured. (exit 61)'
+        exit 61
+    }
+
+    $securePass = ConvertTo-SecureString $rdpPass -AsPlainText -Force
+    $existing = Get-LocalUser -Name $rdpUser -ErrorAction SilentlyContinue
+    if (-not $existing) {
+        New-LocalUser -Name $rdpUser -Password $securePass -ErrorAction Stop | Out-Null
+        Write-Output "RDP user: created account '$rdpUser'."
+    } else {
+        if ($existing.Enabled -ne $true) {
+            Enable-LocalUser -Name $rdpUser -ErrorAction Stop
+        }
+        Set-LocalUser -Name $rdpUser -Password $securePass -ErrorAction Stop
+        Write-Output "RDP user: account '$rdpUser' already exists, password updated (idempotent)."
+    }
+    $member = Get-LocalGroupMember -Group 'Remote Desktop Users' -Member $rdpUser -ErrorAction SilentlyContinue
+    if (-not $member) {
+        Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $rdpUser -ErrorAction Stop
+        Write-Output "RDP user: added '$rdpUser' to 'Remote Desktop Users'."
+    } else {
+        Write-Output "RDP user: '$rdpUser' already in 'Remote Desktop Users' (idempotent, skip)."
+    }
+} catch {
+    Write-Error "ERROR: Gagal provisioning akun RDP. (exit 62)"
+    exit 62
+} finally {
+    # Bersihkan plaintext dari memori sejauh yang praktis.
+    if (Test-Path variable:\rdpPass) { $rdpPass = $null; Remove-Variable rdpPass -ErrorAction SilentlyContinue }
+    if (Test-Path variable:\securePass) { $securePass = $null; Remove-Variable securePass -ErrorAction SilentlyContinue }
+    [GC]::Collect()
 }
 
 Write-Output "OK: Windows RDP host aktif. Port=$Port NLA=Enabled TermService=Running."

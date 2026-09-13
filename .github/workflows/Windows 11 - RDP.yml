@@ -12,6 +12,21 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Validate RDP Credential Configuration
+        shell: pwsh
+        env:
+          RDP_USERNAME: ${{ vars.RDP_USERNAME }}
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          # Fail-fast sebelum provisioning. Nilai kredensial tidak pernah dicetak.
+          if ([string]::IsNullOrWhiteSpace($env:RDP_USERNAME)) {
+              throw "RDP_USERNAME GitHub Actions Variable is not configured."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RDP_PASSWORD)) {
+              throw "RDP_PASSWORD GitHub Actions Secret is not configured."
+          }
+          Write-Output "RDP credential configuration: OK."
+
       # 1. Restore Cache di Awal
       - name: Restore User Folders (Desktop & Documents)
         uses: actions/cache/restore@v4
@@ -66,9 +81,14 @@ jobs:
 
       - name: Setup Windows RDP (Tailscale-only)
         shell: pwsh
+        env:
+          RDP_USERNAME: ${{ vars.RDP_USERNAME }}
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
           # Workflow baru: native Windows RDP + firewall Tailscale-only.
           # RDP TIDAK diekspos ke public IP / Internet (PRD Fase 4-5).
+          # Enable-RdpHost.ps1 juga mem-provision akun RDP dari env di atas
+          # (nilai tidak pernah dicetak ke log).
           .\Enable-RdpHost.ps1
           if ($LASTEXITCODE -ne 0) { throw "Enable-RdpHost.ps1 gagal (exit $LASTEXITCODE)" }
           .\Set-RdpFirewallTailscale.ps1
