@@ -132,7 +132,7 @@ hostname.tailxxxx.ts.net
 | `enable_rdp_and_open_port.bat` | MODIFIED (deprecated wrapper) | Diteruskan ke 2 modul `.ps1` aman; jangan dipakai langsung |
 | `get_public_ip.bat` | MODIFIED (deprecated untuk RDP) | Dipertahankan untuk non-RDP; RDP pakai Tailscale IP |
 | `anydesk_manage.ps1` | MODIFIED (header deprecated) | Tidak dipanggil setup/workflows baru |
-| `.github/workflows/Windows 10 - RDP.yml` | MODIFIED | CRD dihapus, diganti RDP Tailscale-only |
+| `.github/workflows/Windows 11 - RDP.yml` (`Windows 11 - RDP (Primary)`) | MODIFIED | CRD dihapus, diganti RDP Tailscale-only |
 | `.github/workflows/Hermes-Agent.yml` | MODIFIED | CRD dihapus, diganti RDP Tailscale-only; cache + Supabase dipertahankan |
 | `Downloads.bat` | KEPT | Tidak diubah (keputusan owner) |
 | `sync_memory.py` | KEPT | Pull/push Supabase via env, tidak terkait RDP |
@@ -157,7 +157,7 @@ hostname.tailxxxx.ts.net
 
 ## GitHub Workflows
 
-Kedua workflow (`Windows 10 - RDP.yml`, `Hermes-Agent.yml`) sekarang:
+Kedua workflow (`Windows 11 - RDP.yml` = Primary, `Hermes-Agent.yml` = Secondary + Memory Sync) sekarang:
 
 1. Checkout → restore cache → `Downloads.bat` → desktop config.
 2. Install + `tailscale up` (auth via `${{ secrets.TAILSCALE_AUTHKEY }}`).
