@@ -1,31 +1,42 @@
 @echo off
-REM -------------------------------
-REM enable_rdp_and_open_port.bat
-REM Run as Administrator
-REM -------------------------------
+REM =====================================================================
+REM DEPRECATED (Legacy) — enable_rdp_and_open_port.bat
+REM PRD Fase 5 + Fase 19: versi lama membuat rule "profile=any" yang
+REM mengekspos RDP (TCP 3389) ke Internet. JANGAN dipakai untuk setup baru.
+REM
+REM Workflow baru (default):
+REM   powershell -ExecutionPolicy Bypass -File setup_rdp_tailscale.ps1
+REM yang mengaktifkan RDP+NLA dan membatasi firewall hanya via Tailscale
+REM (100.64.0.0/10). Lihat README.md bagian Legacy / Deprecated.
+REM
+REM File ini dipertahankan sebagai wrapper kompatibilitas: ia meneruskan
+REM ke Enable-RdpHost.ps1 + Set-RdpFirewallTailscale.ps1 yang aman.
+REM Run as Administrator.
+REM =====================================================================
 
 set RDP_PORT=3389
+if defined RDP_PORT_ENV set RDP_PORT=%RDP_PORT_ENV%
 
-echo Enabling Remote Desktop...
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f >nul
+echo [DEPRECATED] enable_rdp_and_open_port.bat diteruskan ke workflow Tailscale-only...
+echo [DEPRECATED] Gunakan: powershell -ExecutionPolicy Bypass -File setup_rdp_tailscale.ps1
+echo.
 
-echo Enabling Network Level Authentication (NLA)...
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v UserAuthentication /t REG_DWORD /d 1 /f >nul
-
-if "%RDP_PORT%" NEQ "3389" (
-  echo Changing RDP port to %RDP_PORT%...
-  reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v PortNumber /t REG_DWORD /d %RDP_PORT% /f >nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Enable-RdpHost.ps1" -RdpPort %RDP_PORT%
+if %errorlevel% neq 0 (
+  echo ERROR: Enable-RdpHost.ps1 gagal dengan exit code %errorlevel%.
+  exit /b %errorlevel%
 )
 
-echo Configuring and starting TermService...
-sc config TermService start= auto >nul
-net start TermService >nul 2>&1
-
-echo Creating Windows Firewall rule for RDP port %RDP_PORT%...
-netsh advfirewall firewall add rule name="Allow RDP TCP %RDP_PORT%" dir=in action=allow protocol=TCP localport=%RDP_PORT% profile=any >nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Set-RdpFirewallTailscale.ps1" -RdpPort %RDP_PORT%
+if %errorlevel% neq 0 (
+  echo ERROR: Set-RdpFirewallTailscale.ps1 gagal dengan exit code %errorlevel%.
+  echo RDP TIDAK dibiarkan setengah aman. Periksa output di atas.
+  exit /b %errorlevel%
+)
 
 echo.
-echo Done.
-echo - Remote Desktop is enabled.
-echo - Firewall rule "Allow RDP TCP %RDP_PORT%" added.
-echo Note: If you changed the port, connect using ip:port (e.g. 192.0.2.1:%RDP_PORT%).
+echo Done (via deprecated wrapper).
+echo - Remote Desktop enabled dengan NLA.
+echo - Firewall: RDP TCP %RDP_PORT% HANYA via Tailscale (100.64.0.0/10), bukan profile=any publik.
+echo - Lihat Tailscale IP dengan: powershell -ExecutionPolicy Bypass -File "%~dp0Get-TailscaleIp.ps1"
+echo Catatan: jangan membuka 3389 ke Internet / port-forwarding. Gunakan Windows App + Tailscale IP.

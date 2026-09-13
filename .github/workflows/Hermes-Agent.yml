@@ -1,4 +1,4 @@
-name: Windows - Chrome Remote Desktop
+name: Windows - Tailscale RDP
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -69,32 +69,31 @@ jobs:
 
           $env:Path += ";C:\Program Files\Tailscale"
           tailscale up --authkey=$env:TAILSCALE_AUTHKEY --hostname="github-runner-vm"
-          
+
           Write-Output "Tailscale berhasil terhubung!"
           tailscale ip -4
 
-      - name: Setup Chrome Remote Desktop
+      - name: Setup Windows RDP (Tailscale-only)
         shell: pwsh
-        env:
-          CRD_AUTH_CODE: ${{ secrets.CRD_AUTH_CODE }}
         run: |
-          Invoke-WebRequest -Uri "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi" -OutFile "crd.msi"
-          Start-Process msiexec.exe -ArgumentList "/i crd.msi /qn" -Wait
-          Start-Sleep -Seconds 5
+          # Workflow baru: native Windows RDP + firewall Tailscale-only.
+          # RDP TIDAK diekspos ke public IP / Internet (PRD Fase 4-5).
+          # Chrome Remote Desktop sudah dihapus dari workflow default (PRD Fase 12).
+          .\Enable-RdpHost.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Enable-RdpHost.ps1 gagal (exit $LASTEXITCODE)" }
+          .\Set-RdpFirewallTailscale.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Set-RdpFirewallTailscale.ps1 gagal (exit $LASTEXITCODE)" }
 
-          $hostExe = (Get-ChildItem -Path "${env:ProgramFiles(x86)}\Google\Chrome Remote Desktop" -Filter "remoting_start_host.exe" -Recurse | Select-Object -First 1).FullName
-
-          if (-not $hostExe) {
-              $hostExe = (Get-ChildItem -Path "$env:ProgramFiles\Google\Chrome Remote Desktop" -Filter "remoting_start_host.exe" -Recurse | Select-Object -First 1).FullName
-          }
-
-          Write-Output "Lokasi CRD Host: $hostExe"
-          & "$hostExe" --code="$env:CRD_AUTH_CODE" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name=$env:COMPUTERNAME --pin=123456
+      - name: Show Tailscale IP (Windows App endpoint)
+        shell: pwsh
+        run: |
+          .\Get-TailscaleIp.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Get-TailscaleIp.ps1 gagal (exit $LASTEXITCODE)" }
 
       - name: Keep Alive Loop
         shell: pwsh
         run: |
-          Write-Output "Runner aktif. Terhubung via Chrome Remote Desktop..."
+          Write-Output "Runner aktif. Terhubung via Tailscale + Windows RDP (gunakan Windows App ke Tailscale IP di atas)..."
           while ($true) {
               Start-Sleep -Seconds 60
           }

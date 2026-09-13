@@ -1,4 +1,11 @@
 <#
+.DEPRECATED (Legacy) — PRD Fase 10 + Fase 19.
+AnyDesk TIDAK lagi menjadi mekanisme remote-access utama/default.
+Workflow default sekarang: Tailscale + native Windows RDP + Microsoft Windows App.
+File ini dipertahankan untuk audit/diagnostik manual saja dan TIDAK dipanggil
+oleh setup_rdp_tailscale.ps1 maupun GitHub workflows baru. Lihat README.md
+bagian Legacy / Deprecated.
+
 .SYNOPSIS
   Detect AnyDesk, optionally set unattended password, retrieve AnyDesk ID and public IP, and output JSON.
 
