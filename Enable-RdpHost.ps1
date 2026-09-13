@@ -160,8 +160,10 @@ try {
 }
 
 # --- 5. Provisioning akun RDP (otoritatif, idempotent) ---
+# Metode: ADSI WinNT provider (pengganti cmdlet LocalAccounts yang terbukti
+# melempar InvalidPasswordException di GitHub-hosted runner).
 # Kredensial HANYA dari runtime env (GitHub Actions vars/secrets atau env manual).
-# Tidak ada password di source. Nilai tidak pernah dicetak.
+# Tidak ada password di source, command-line, file, atau output.
 # Akun internal runner tidak disentuh; grup hanya "Remote Desktop Users".
 try {
     $rdpUser = $env:RDP_USERNAME
@@ -179,38 +181,50 @@ try {
         exit 63
     }
 
-    $securePass = ConvertTo-SecureString $rdpPass -AsPlainText -Force
+    $compName = $env:COMPUTERNAME
     $existing = Get-LocalUser -Name $rdpUser -ErrorAction SilentlyContinue
     if (-not $existing) {
-        New-LocalUser -Name $rdpUser -Password $securePass -ErrorAction Stop | Out-Null
+        $computer = [ADSI]"WinNT://$compName,computer"
+        $newUser = $computer.Create('user', $rdpUser)
+        $newUser.SetPassword($rdpPass)
+        $newUser.SetInfo()
         Write-Output "RDP user: created account '$rdpUser'."
     } else {
-        if ($existing.Enabled -ne $true) {
-            Enable-LocalUser -Name $rdpUser -ErrorAction Stop
-        }
-        Set-LocalUser -Name $rdpUser -Password $securePass -ErrorAction Stop
+        $adu = [ADSI]"WinNT://$compName/$rdpUser,user"
+        $adu.SetPassword($rdpPass)
+        # Pastikan akun enabled (clear UF_ACCOUNTDISABLE), tanpa mengubah flag lain.
+        $adu.UserFlags = $adu.UserFlags.Value -band (-bnot 2)
+        $adu.SetInfo()
         Write-Output "RDP user: account '$rdpUser' already exists, password updated (idempotent)."
     }
-    $member = Get-LocalGroupMember -Group 'Remote Desktop Users' -Member $rdpUser -ErrorAction SilentlyContinue
-    if (-not $member) {
-        Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $rdpUser -ErrorAction Stop
+    $group = [ADSI]"WinNT://$compName/Remote Desktop Users,group"
+    $members = @($group.Members() | ForEach-Object {
+        $_.GetType().InvokeMember('Name', 'GetProperty', $null, $_, $null)
+    })
+    if ($members -notcontains $rdpUser) {
+        $group.Add("WinNT://$compName/$rdpUser,user")
         Write-Output "RDP user: added '$rdpUser' to 'Remote Desktop Users'."
     } else {
         Write-Output "RDP user: '$rdpUser' already in 'Remote Desktop Users' (idempotent, skip)."
     }
 } catch {
-    # Sertakan detail error agar bisa didiagnosis, TAPI scrub dulu nilai password
-    # agar tidak bocor ke log (PRD §8). Username tidak sensitif, boleh tampil.
-    $detail = "$($_.Exception.Message)"
+    # Rantai pesan error lengkap agar bisa didiagnosis, TAPI scrub dulu nilai
+    # password agar tidak bocor ke log (PRD §8). Username tidak sensitif.
+    $msgs = @()
+    $e = $_.Exception
+    while ($e) { $msgs += $e.Message; $e = $e.InnerException }
+    $detail = ($msgs -join ' <-- ')
     if (-not [string]::IsNullOrWhiteSpace($rdpPass)) {
         $detail = $detail -replace [regex]::Escape($rdpPass), '(redacted)'
+    }
+    if ($detail -match 'password|policy|complex|length|credential') {
+        $detail += ' [HINT: pastikan RDP_PASSWORD memenuhi Local Security Policy (panjang min. & kompleksitas).]'
     }
     Write-Error "ERROR: Gagal provisioning akun RDP: $detail (exit 62)"
     exit 62
 } finally {
     # Bersihkan plaintext dari memori sejauh yang praktis.
     if (Test-Path variable:\rdpPass) { $rdpPass = $null; Remove-Variable rdpPass -ErrorAction SilentlyContinue }
-    if (Test-Path variable:\securePass) { $securePass = $null; Remove-Variable securePass -ErrorAction SilentlyContinue }
     [GC]::Collect()
 }
 

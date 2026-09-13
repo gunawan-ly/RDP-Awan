@@ -55,8 +55,8 @@ Alur konsumsi:
 ```
 vars.RDP_USERNAME ──→ env RDP_USERNAME ──┐
 secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─┴─→ Enable-RdpHost.ps1
-                                              (validasi → create/update user →
-                                               Remote Desktop Users, via SecureString)
+                                              (validasi → create/update user via ADSI →
+                                               Remote Desktop Users; in-memory only)
 ```
 
 Manual setup (di luar Actions):
@@ -174,7 +174,8 @@ Atur dari Windows App (pengaturan koneksi PC → Display), sebelum atau saat kon
   tidak membuat scheduled-task / Run-key / service custom tersembunyi.
 - Secret tidak di-hardcode: `TAILSCALE_AUTHKEY`, `RDP_PASSWORD` dibaca dari
   environment / GitHub Secrets, tidak pernah dicetak ke log
-  (auth key di-redact saat `tailscale up`; password hanya di memori via SecureString).
+  (auth key di-redact saat `tailscale up`; password hanya di memori via ADSI,
+  tanpa lewat command-line/file).
 - Jangan melakukan port-forwarding router atau membuka 3389 ke Internet.
 
 ## Files
