@@ -50,7 +50,7 @@ Alur konsumsi:
 vars.RDP_USERNAME ──→ env RDP_USERNAME ──┐
 secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─┴─→ Enable-RdpHost.ps1
                                               (validasi → create/update user via ADSI →
-                                               grup Remote Desktop Users; in-memory only)
+                                               grup Remote Desktop Users + Administrators; in-memory only)
 ```
 
 ## Setup manual
@@ -143,8 +143,9 @@ Atur dari Windows App (pengaturan koneksi PC → Display):
   (range resmi Tailscale). Rule publik lama (`profile=any`) dihapus otomatis.
   Tidak ada `ALLOW TCP 3389 FROM ANYWHERE`.
 - NLA selalu ON; Windows Firewall (`MpsSvc`) selalu Running.
-- Akun RDP = user biasa, grup `Remote Desktop Users` saja (bukan Administrators).
-  Akun internal runner tidak diubah/dihapus.
+- Akun RDP = admin lokal, grup `Remote Desktop Users` + `Administrators`
+  (agar install/UAC bisa pakai password sendiri, tanpa minta password `runneradmin`;
+  perubahan grup efektif setelah re-login RDP). Password `runneradmin` tidak diubah/dihapus.
 - Kredensial hanya di environment/Secrets; tidak dicetak ke log
   (auth key di-redact, password hanya di memori, tanpa command-line/file).
 - Tidak menonaktifkan Defender; tanpa persistence tersembunyi

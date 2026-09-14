@@ -14,7 +14,9 @@
   - Provisioning akun RDP: baca $env:RDP_USERNAME / $env:RDP_PASSWORD
     (GitHub Actions vars.RDP_USERNAME / secrets.RDP_PASSWORD, atau env manual).
     Buat user bila belum ada, update password bila sudah ada,
-    tambahkan ke grup "Remote Desktop Users" SAJA (bukan Administrators).
+    tambahkan ke grup "Remote Desktop Users" DAN "Administrators"
+    (admin agar UAC/install bisa pakai password sendiri di runner ephemeral
+    GitHub-hosted; tanpa ini install selalu minta password runneradmin).
     Nilai kredensial tidak pernah dicetak ke output.
   - Hormati custom port via -RdpPort / env RDP_PORT (default 3389, PRD Fase 16).
   - Tidak membuka firewall di sini (lihat Set-RdpFirewallTailscale.ps1).
@@ -164,7 +166,8 @@ try {
 # melempar InvalidPasswordException di GitHub-hosted runner).
 # Kredensial HANYA dari runtime env (GitHub Actions vars/secrets atau env manual).
 # Tidak ada password di source, command-line, file, atau output.
-# Akun internal runner tidak disentuh; grup hanya "Remote Desktop Users".
+# Akun internal runner (mis. runneradmin) tidak diubah passwordnya; user RDP
+# dijadikan admin agar bisa elevasi/UAC sendiri di runner ephemeral.
 try {
     $rdpUser = $env:RDP_USERNAME
     $rdpPass = $env:RDP_PASSWORD
@@ -206,6 +209,18 @@ try {
         Write-Output "RDP user: added '$rdpUser' to 'Remote Desktop Users'."
     } else {
         Write-Output "RDP user: '$rdpUser' already in 'Remote Desktop Users' (idempotent, skip)."
+    }
+    # Jadikan admin agar install/UAC tidak minta password runneradmin.
+    # Idempotent: skip bila sudah anggota. Efektif penuh setelah re-login RDP.
+    $adminGroup = [ADSI]"WinNT://$compName/Administrators,group"
+    $adminMembers = @($adminGroup.Members() | ForEach-Object {
+        $_.GetType().InvokeMember('Name', 'GetProperty', $null, $_, $null)
+    })
+    if ($adminMembers -notcontains $rdpUser) {
+        $adminGroup.Add("WinNT://$compName/$rdpUser,user")
+        Write-Output "RDP user: added '$rdpUser' to 'Administrators' (bisa install/UAC dengan password sendiri; re-login agar efektif)."
+    } else {
+        Write-Output "RDP user: '$rdpUser' already in 'Administrators' (idempotent, skip)."
     }
 } catch {
     # Rantai pesan error lengkap agar bisa didiagnosis, TAPI scrub dulu nilai
