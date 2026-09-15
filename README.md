@@ -31,26 +31,24 @@ Untuk sesi permanen, gunakan self-hosted runner atau jalankan
 
 | Nama | Jenis | Dipakai oleh | Keterangan |
 |---|---|---|---|
-| `RDP_USERNAME` | Variable | Primary, Secondary | Username akun RDP (tidak sensitif). |
-| `RDP_PASSWORD` | Secret | Primary, Secondary | Password akun RDP. Hanya ada di Secrets — tidak pernah ditulis di repo/log. Wajib memenuhi Windows password policy (lihat bawah). |
+| `RDP_PASSWORD` | Secret | Primary, Secondary | Password untuk akun default `runneradmin`. Hanya ada di Secrets — tidak pernah ditulis di repo/log. Wajib memenuhi Windows password policy (lihat bawah). Tidak ada user baru yang dibuat. |
 | `TAILSCALE_AUTHKEY` | Secret (ephemeral) | Primary, Secondary | Auth key Tailscale. Node otomatis hilang dari tailnet saat runner mati. |
 | `SUPABASE_URL`, `SUPABASE_KEY` | Secrets | Secondary saja | Untuk sync memori Hermes-Agent. |
 
-Syarat `RDP_PASSWORD` (jika dilanggar, provisioning gagal dengan pesan jelas):
+Syarat `RDP_PASSWORD` (jika dilanggar, setup gagal dengan pesan jelas):
 
 - Min. 8 karakter; kombinasi huruf besar + huruf kecil + angka + simbol.
-- **Tidak boleh mengandung username** (atau bagian nama >2 karakter) — ini sub-aturan
-  complexity Windows yang paling sering menjegal. Contoh: username `rdpuser`
-  tidak boleh dipasangkan dengan password yang mengandung `rdpuser`.
+- **Tidak boleh mengandung `runneradmin`** (atau bagian nama >2 karakter) — ini sub-aturan
+  complexity Windows yang paling sering menjegal.
 - Gunakan nilai yang belum pernah di-commit ke git.
 
 Alur konsumsi:
 
 ```
-vars.RDP_USERNAME ──→ env RDP_USERNAME ──┐
-secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─┴─→ Enable-RdpHost.ps1
-                                              (validasi → create/update user via ADSI →
-                                               grup Remote Desktop Users + Administrators; in-memory only)
+secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─→ Enable-RdpHost.ps1
+                                             (validasi → SetPassword runneradmin via ADSI →
+                                              pastikan grup Remote Desktop Users; in-memory only,
+                                              tanpa membuat user baru)
 ```
 
 ## Setup manual
@@ -58,8 +56,8 @@ secrets.RDP_PASSWORD ─→ env RDP_PASSWORD ─┴─→ Enable-RdpHost.ps1
 Di PC target, PowerShell sebagai **Administrator**, dari folder repo:
 
 ```powershell
-# Kredensial hanya via environment (jangan taruh password di command line).
-$env:RDP_USERNAME = 'nama-user-rdp'
+# Password hanya via environment (jangan taruh password di command line).
+# Target akun selalu runneradmin (akun default yang sudah ada).
 $env:RDP_PASSWORD = '<password>'
 powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
 
@@ -73,7 +71,7 @@ Urutan `setup_rdp_tailscale.ps1` (idempotent — aman dijalankan berulang):
 1. Check Administrator → 2. Check Windows edition → 3. Check Tailscale →
    4. Install Tailscale (hanya dengan `-InstallTailscale`) →
    5. Tailscale service → 6. Tailscale authenticated →
-   7. Enable RDP + NLA + provisioning akun RDP (`Enable-RdpHost.ps1`) →
+   7. Enable RDP + NLA + set password runneradmin (`Enable-RdpHost.ps1`) →
    8. Firewall Tailscale-only (`Set-RdpFirewallTailscale.ps1`) →
    9. Check TermService → 10. Tampilkan Tailscale IP (`Get-TailscaleIp.ps1`)
 
@@ -113,7 +111,7 @@ hostname.tailxxxx.ts.net
 1. Install + login Tailscale di PC client (tailnet **sama** dengan target).
 2. Buka Microsoft Windows App → **Add PC**.
 3. PC name: `100.x.x.x` atau `hostname.tailxxxx.ts.net` (dari output di atas).
-4. Credentials: username = nilai `RDP_USERNAME`, password = nilai `RDP_PASSWORD`
+4. Credentials: username = `runneradmin`, password = nilai `RDP_PASSWORD`
    (diketik manual di client, tidak tersimpan di repo).
 5. Connect.
 
@@ -143,9 +141,9 @@ Atur dari Windows App (pengaturan koneksi PC → Display):
   (range resmi Tailscale). Rule publik lama (`profile=any`) dihapus otomatis.
   Tidak ada `ALLOW TCP 3389 FROM ANYWHERE`.
 - NLA selalu ON; Windows Firewall (`MpsSvc`) selalu Running.
-- Akun RDP = admin lokal, grup `Remote Desktop Users` + `Administrators`
-  (agar install/UAC bisa pakai password sendiri, tanpa minta password `runneradmin`;
-  perubahan grup efektif setelah re-login RDP). Password `runneradmin` tidak diubah/dihapus.
+- Akun RDP = `runneradmin` (akun default yang sudah ada, tanpa membuat user baru),
+  dipastikan di grup `Remote Desktop Users` (sudah `Administrators` secara default;
+  perubahan grup efektif setelah re-login RDP). Password di-set dari `RDP_PASSWORD` secret.
 - Kredensial hanya di environment/Secrets; tidak dicetak ke log
   (auth key di-redact, password hanya di memori, tanpa command-line/file).
 - Tidak menonaktifkan Defender; tanpa persistence tersembunyi
@@ -157,7 +155,7 @@ Atur dari Windows App (pengaturan koneksi PC → Display):
 | File | Fungsi |
 |---|---|
 | `setup_rdp_tailscale.ps1` | Entry-point setup (orkestrasi 10 langkah di atas) |
-| `Enable-RdpHost.ps1` | Enable RDP + NLA + TermService + provisioning akun RDP |
+| `Enable-RdpHost.ps1` | Enable RDP + NLA + TermService + set password runneradmin (tanpa user baru) |
 | `Set-RdpFirewallTailscale.ps1` | Firewall RDP khusus Tailscale |
 | `Get-TailscaleIp.ps1` | Tampilkan IP/MagicDNS format `RDP READY` |
 | `Downloads.bat` | Install essentials (tanpa kredensial) |

@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
   Enable native Windows Remote Desktop host (RDP + NLA + TermService)
-  dan provisioning akun RDP dari GitHub Actions Variable/Secret.
-  PRD Fase 4 + UPDATE TASK RDP Credentials. Idempotent.
-  Tidak menyentuh Defender, persistence, atau akun runner internal.
+  dan setup password akun default runneradmin dari Secret.
+  PRD Fase 4 + UPDATE TASK RDP Credentials (revisi: tanpa user baru). Idempotent.
+  Tidak menyentuh Defender atau persistence.
 
 .DESCRIPTION
   - Cek Administrator.
@@ -11,23 +11,20 @@
   - Enable RDP via fDenyTSConnections=0.
   - Enable NLA via UserAuthentication=1.
   - Pastikan TermService Start=auto dan Running.
-  - Provisioning akun RDP: baca $env:RDP_USERNAME / $env:RDP_PASSWORD
-    (GitHub Actions vars.RDP_USERNAME / secrets.RDP_PASSWORD, atau env manual).
-    Buat user bila belum ada, update password bila sudah ada,
-    tambahkan ke grup "Remote Desktop Users" DAN "Administrators"
-    (admin agar UAC/install bisa pakai password sendiri di runner ephemeral
-    GitHub-hosted; tanpa ini install selalu minta password runneradmin).
-    Nilai kredensial tidak pernah dicetak ke output.
+  - Setup akun RDP: pakai akun default yang sudah ada 'runneradmin',
+    set password dari $env:RDP_PASSWORD (GitHub Actions secrets.RDP_PASSWORD,
+    atau env manual). TIDAK membuat user baru.
+    Pastikan 'runneradmin' ada di grup "Remote Desktop Users"
+    (sudah Administrators secara default; hanya verifikasi read-only).
+    Nilai password tidak pernah dicetak ke output.
   - Hormati custom port via -RdpPort / env RDP_PORT (default 3389, PRD Fase 16).
   - Tidak membuka firewall di sini (lihat Set-RdpFirewallTailscale.ps1).
   - Tidak menonaktifkan security feature apapun.
-  - Tidak mengubah akun internal runner (mis. runneradmin).
 
 .PARAMETER RdpPort
   TCP port RDP. Default 3389. Bisa juga via $env:RDP_PORT.
 
 .EXAMPLE
-  $env:RDP_USERNAME = 'RdpUser'
   $env:RDP_PASSWORD = '<password>'   # prefer env/secret, jangan command-line
   powershell -ExecutionPolicy Bypass -File .\Enable-RdpHost.ps1
 #>
@@ -161,44 +158,33 @@ try {
     exit 21
 }
 
-# --- 5. Provisioning akun RDP (otoritatif, idempotent) ---
+# --- 5. Setup akun RDP default (otoritatif, idempotent, tanpa user baru) ---
+# Target: akun bawaan 'runneradmin' (GitHub-hosted runner + console owner PC lokal).
 # Metode: ADSI WinNT provider (pengganti cmdlet LocalAccounts yang terbukti
 # melempar InvalidPasswordException di GitHub-hosted runner).
-# Kredensial HANYA dari runtime env (GitHub Actions vars/secrets atau env manual).
+# Password HANYA dari runtime env (GitHub Actions secrets.RDP_PASSWORD atau env manual).
 # Tidak ada password di source, command-line, file, atau output.
-# Akun internal runner (mis. runneradmin) tidak diubah passwordnya; user RDP
-# dijadikan admin agar bisa elevasi/UAC sendiri di runner ephemeral.
+# RDP membutuhkan akun berpassword (Windows menolak blank-password untuk network logon).
 try {
-    $rdpUser = $env:RDP_USERNAME
+    $rdpUser = 'runneradmin'
     $rdpPass = $env:RDP_PASSWORD
-    if ([string]::IsNullOrWhiteSpace($rdpUser)) {
-        Write-Error 'ERROR: RDP_USERNAME GitHub Actions Variable is not configured. (exit 60)'
-        exit 60
-    }
     if ([string]::IsNullOrWhiteSpace($rdpPass)) {
         Write-Error 'ERROR: RDP_PASSWORD GitHub Actions Secret is not configured. (exit 61)'
         exit 61
-    }
-    if ($rdpUser.Length -gt 20 -or $rdpUser -match '[\\/\[\]":;|+=,?*<>@]') {
-        Write-Error 'ERROR: RDP_USERNAME tidak valid untuk akun Windows lokal (maks 20 karakter, tanpa \ / [ ] " : ; | + = , ? * < > @). (exit 63)'
-        exit 63
     }
 
     $compName = $env:COMPUTERNAME
     $existing = Get-LocalUser -Name $rdpUser -ErrorAction SilentlyContinue
     if (-not $existing) {
-        $computer = [ADSI]"WinNT://$compName,computer"
-        $newUser = $computer.Create('user', $rdpUser)
-        $newUser.SetPassword($rdpPass)
-        $newUser.SetInfo()
-        Write-Output "RDP user: created account '$rdpUser'."
+        Write-Error "ERROR: Akun default '$rdpUser' tidak ditemukan di komputer ini. Setup tanpa user baru dibatalkan (tidak membuat akun). (exit 64)"
+        exit 64
     } else {
         $adu = [ADSI]"WinNT://$compName/$rdpUser,user"
         $adu.SetPassword($rdpPass)
         # Pastikan akun enabled (clear UF_ACCOUNTDISABLE), tanpa mengubah flag lain.
         $adu.UserFlags = $adu.UserFlags.Value -band (-bnot 2)
         $adu.SetInfo()
-        Write-Output "RDP user: account '$rdpUser' already exists, password updated (idempotent)."
+        Write-Output "RDP user: password for default account '$rdpUser' updated (idempotent)."
     }
     $group = [ADSI]"WinNT://$compName/Remote Desktop Users,group"
     $members = @($group.Members() | ForEach-Object {
@@ -210,17 +196,15 @@ try {
     } else {
         Write-Output "RDP user: '$rdpUser' already in 'Remote Desktop Users' (idempotent, skip)."
     }
-    # Jadikan admin agar install/UAC tidak minta password runneradmin.
-    # Idempotent: skip bila sudah anggota. Efektif penuh setelah re-login RDP.
+    # runneradmin sudah Administrators secara default; verifikasi read-only saja.
     $adminGroup = [ADSI]"WinNT://$compName/Administrators,group"
     $adminMembers = @($adminGroup.Members() | ForEach-Object {
         $_.GetType().InvokeMember('Name', 'GetProperty', $null, $_, $null)
     })
-    if ($adminMembers -notcontains $rdpUser) {
-        $adminGroup.Add("WinNT://$compName/$rdpUser,user")
-        Write-Output "RDP user: added '$rdpUser' to 'Administrators' (bisa install/UAC dengan password sendiri; re-login agar efektif)."
-    } else {
+    if ($adminMembers -contains $rdpUser) {
         Write-Output "RDP user: '$rdpUser' already in 'Administrators' (idempotent, skip)."
+    } else {
+        Write-Warning "RDP user: '$rdpUser' is NOT in 'Administrators' (tidak ditambahkan otomatis; setup tanpa user baru)."
     }
 } catch {
     # Rantai pesan error lengkap agar bisa didiagnosis, TAPI scrub dulu nilai
@@ -235,7 +219,7 @@ try {
     if ($detail -match 'password|policy|complex|length|credential') {
         $detail += ' [HINT: pastikan RDP_PASSWORD memenuhi Local Security Policy (panjang min. & kompleksitas).]'
     }
-    Write-Error "ERROR: Gagal provisioning akun RDP: $detail (exit 62)"
+    Write-Error "ERROR: Gagal setup akun RDP default: $detail (exit 62)"
     exit 62
 } finally {
     # Bersihkan plaintext dari memori sejauh yang praktis.

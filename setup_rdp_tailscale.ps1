@@ -11,8 +11,8 @@
    4. Install Tailscale hanya jika -InstallTailscale dan installer tersedia/URL resmi
    5. Pastikan Tailscale service berjalan
    6. Pastikan Tailscale authenticated (tailscale ip -4 harus ada)
-   7. Enable RDP + provisioning akun RDP (via Enable-RdpHost.ps1;
-      kredensial dari $env:RDP_USERNAME / $env:RDP_PASSWORD)
+   7. Enable RDP + set password akun default runneradmin (via Enable-RdpHost.ps1;
+      password dari $env:RDP_PASSWORD, tanpa membuat user baru)
    8. Enable NLA (bagian dari Enable-RdpHost.ps1)
    9. Configure firewall Tailscale-only (via Set-RdpFirewallTailscale.ps1)
   10. Check TermService
@@ -21,9 +21,11 @@
 
   Secret (TAILSCALE_AUTHKEY) TIDAK boleh di-hardcode: baca dari
   $env:TAILSCALE_AUTHKEY atau parameter -AuthKey (mis. dari GitHub Secrets).
-  Kredensial RDP (RDP_USERNAME/RDP_PASSWORD) juga hanya via environment:
-  di GitHub Actions dipetakan dari vars.RDP_USERNAME / secrets.RDP_PASSWORD,
-  manual via $env:RDP_USERNAME / $env:RDP_PASSWORD. Tidak pernah via argumen.
+  Password RDP juga hanya via environment ($env:RDP_PASSWORD):
+  di GitHub Actions dipetakan dari secrets.RDP_PASSWORD,
+  manual via $env:RDP_PASSWORD. Target akun selalu 'runneradmin'
+  (akun default yang sudah ada; tidak membuat user baru).
+  Tidak pernah via argumen.
 
 .PARAMETER RdpPort
   Default 3389 / $env:RDP_PORT.
@@ -42,7 +44,7 @@
   URL installer resmi. Default https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
+  $env:RDP_PASSWORD='...' ; powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1
   $env:TAILSCALE_AUTHKEY='tskey-...' ; powershell -ExecutionPolicy Bypass -File .\setup_rdp_tailscale.ps1 -InstallTailscale
 #>
 [CmdletBinding()]
