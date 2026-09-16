@@ -1,219 +1,112 @@
-name: macOS AnyDesk
+name: macOS GUI Diagnostic
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-anydesk:
+  diagnose:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
-      - name: Check macOS environment
+      - name: System
         run: |
-          set -e
-
-          echo "========================================"
-          echo "        MACOS ENVIRONMENT"
-          echo "========================================"
-
-          echo
-          echo "[macOS]"
+          echo "=== SYSTEM ==="
           sw_vers
+          uname -a
+          echo "User: $(whoami)"
+          echo "UID: $(id -u)"
 
-          echo
-          echo "[Architecture]"
-          uname -m
-
-          echo
-          echo "[User]"
-          whoami
-
-          echo
-          echo "[Homebrew]"
-          brew --version | head -1 || true
-
-      - name: Check AnyDesk availability
+      - name: GUI Session
         run: |
-          set -e
+          echo "=== GUI SESSION ==="
+          echo "Console user:"
+          stat -f "%Su" /dev/console
 
-          echo "========================================"
-          echo "        ANYDESK AVAILABILITY"
-          echo "========================================"
+          echo
+          echo "Login window:"
+          pgrep -fl loginwindow || true
 
-          brew search --cask anydesk
+          echo
+          echo "WindowServer:"
+          pgrep -fl WindowServer || true
 
-      - name: Install AnyDesk
+          echo
+          echo "Aqua sessions:"
+          launchctl print gui/$(id -u) 2>/dev/null | head -30 || true
+
+      - name: Display
         run: |
-          set -e
+          echo "=== DISPLAY ==="
 
-          echo "========================================"
-          echo "        INSTALLING ANYDESK"
-          echo "========================================"
-
-          brew install --cask anydesk
-
-          echo
-          echo "[AnyDesk app]"
-          ls -ld /Applications/AnyDesk.app
-
-          echo
-          echo "[AnyDesk executable]"
-          ls -l /Applications/AnyDesk.app/Contents/MacOS/AnyDesk
-
-      - name: Start AnyDesk
-        run: |
-          set -e
-
-          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
-
-          echo "========================================"
-          echo "          STARTING ANYDESK"
-          echo "========================================"
-
-          if [ ! -x "$ANYDESK" ]; then
-            echo "[ERROR] AnyDesk executable not found."
-            exit 1
-          fi
-
-          echo "[INFO] Starting AnyDesk directly..."
-
-          "$ANYDESK" >/tmp/anydesk.log 2>&1 &
-
-          ANYDESK_PID=$!
-
-          echo "[INFO] AnyDesk PID: $ANYDESK_PID"
-
-          echo
-          echo "[INFO] Waiting for AnyDesk..."
-          sleep 10
-
-          echo
-          echo "=== AnyDesk processes ==="
-          ps aux | grep -i '[A]nyDesk' || true
-
-          echo
-          echo "=== AnyDesk log ==="
-          cat /tmp/anydesk.log || true
-      - name: Check AnyDesk bundle
-        run: |
-          set -e
-
-          APP="/Applications/AnyDesk.app"
-
-          echo "========================================"
-          echo "          ANYDESK BUNDLE"
-          echo "========================================"
-
-          echo
-          echo "[Bundle identifier]"
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleIdentifier" \
-            "$APP/Contents/Info.plist" || true
-
-          echo
-          echo "[Bundle version]"
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleShortVersionString" \
-            "$APP/Contents/Info.plist" || true
-
-          echo
-          echo "[Code signature]"
-          codesign -dv "$APP" 2>&1 || true
-
-          echo
-          echo "[TCC AnyDesk status]"
-          tccutil reset ScreenCapture "$APP" 2>&1 || true
-          tccutil reset Accessibility "$APP" 2>&1 || true
-
-      - name: Get AnyDesk information
-        run: |
-          set -e
-
-          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
-
-          echo "========================================"
-          echo "         ANYDESK INFORMATION"
-          echo "========================================"
-
-          echo
-          echo "[VERSION]"
-          "$ANYDESK" --version || true
-
-          echo
-          echo "[STATUS]"
-          "$ANYDESK" --get-status || true
-
-          echo
-          echo "[ID]"
-          
-          ID=""
-
-          for i in {1..12}; do
-            ID="$("$ANYDESK" --get-id 2>/dev/null | tr -d '[:space:]' || true)"
-
-            if [ -n "$ID" ]; then
-              break
-            fi
-
-            echo "[INFO] AnyDesk ID not ready. Retry $i/12..."
-            sleep 5
-          done
-
-          if [ -z "$ID" ]; then
-            echo "[ERROR] Failed to obtain AnyDesk ID."
-            echo
-            echo "=== AnyDesk log ==="
-            cat /tmp/anydesk.log || true
-            exit 1
-          fi
-
-          echo
-          echo "========================================"
-          echo "        ANYDESK CONNECTION"
-          echo "========================================"
-          echo "AnyDesk ID: $ID"
-          echo "========================================"
-
-          echo "ANYDESK_ID=$ID" >> "$GITHUB_ENV"
-
-      - name: Check macOS GUI environment
-        run: |
-          echo "========================================"
-          echo "          GUI ENVIRONMENT"
-          echo "========================================"
-
-          echo
-          echo "[Console user]"
-          stat -f '%Su' /dev/console || true
-
-          echo
-          echo "[WindowServer]"
-          pgrep -lf WindowServer || true
-
-          echo
-          echo "[Display information]"
+          echo "--- system_profiler ---"
           system_profiler SPDisplaysDataType || true
 
           echo
-          echo "[AnyDesk processes]"
-          ps aux | grep -i '[A]nyDesk' || true
+          echo "--- displays ---"
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset|Resolution|UI Looks|Main Display|Display Type|Online" || true
 
-      - name: Keep runner alive
+      - name: TCC Screen Capture
         run: |
-          echo "========================================"
-          echo "         ANYDESK IS RUNNING"
-          echo "========================================"
+          echo "=== TCC SCREEN CAPTURE ==="
 
-          echo
-          echo "AnyDesk ID: $ANYDESK_ID"
+          DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
-          echo
-          echo "The runner will remain active."
-          echo "Cancel this workflow manually when finished."
+          if [ -f "$DB" ]; then
+            echo "TCC database exists"
 
-          echo "========================================"
+            sqlite3 "$DB" \
+              "SELECT service,client,auth_value,auth_reason FROM access WHERE service='kTCCServiceScreenCapture';" \
+              2>&1 || true
+          else
+            echo "TCC database not found"
+          fi
 
-          while true; do
-            sleep 60
-          done
+      - name: TCC Accessibility
+        run: |
+          echo "=== TCC ACCESSIBILITY ==="
+
+          DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+
+          if [ -f "$DB" ]; then
+            sqlite3 "$DB" \
+              "SELECT service,client,auth_value,auth_reason FROM access WHERE service='kTCCServiceAccessibility';" \
+              2>&1 || true
+          else
+            echo "TCC database not found"
+          fi
+
+      - name: Screen Capture Test
+        run: |
+          echo "=== SCREEN CAPTURE TEST ==="
+
+          mkdir -p "$RUNNER_TEMP/capture"
+
+          echo "Trying screencapture..."
+
+          screencapture \
+            -x \
+            "$RUNNER_TEMP/capture/test.png" \
+            2>&1 || true
+
+          if [ -f "$RUNNER_TEMP/capture/test.png" ]; then
+            echo "SUCCESS: screenshot created"
+            file "$RUNNER_TEMP/capture/test.png"
+            ls -lh "$RUNNER_TEMP/capture/test.png"
+          else
+            echo "FAILED: screenshot was not created"
+          fi
+
+      - name: Process Environment
+        run: |
+          echo "=== PROCESS ENVIRONMENT ==="
+          echo "DISPLAY=$DISPLAY"
+          echo "HOME=$HOME"
+          echo "USER=$USER"
+          echo "SHELL=$SHELL"
+
+      - name: Keep Alive
+        run: |
+          echo "=== KEEP ALIVE ==="
+          echo "Runner will stay alive for 5 minutes."
+          sleep 300
