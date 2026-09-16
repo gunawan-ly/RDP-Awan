@@ -95,50 +95,36 @@ jobs:
           echo
           echo "=== AnyDesk log ==="
           cat /tmp/anydesk.log || true
-
-      - name: Diagnose macOS permissions
+      - name: Check AnyDesk bundle
         run: |
+          set -e
+
+          APP="/Applications/AnyDesk.app"
+
           echo "========================================"
-          echo "       MACOS PERMISSION DIAGNOSTIC"
+          echo "          ANYDESK BUNDLE"
           echo "========================================"
 
           echo
-          echo "[Current user]"
-          whoami
+          echo "[Bundle identifier]"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$APP/Contents/Info.plist" || true
 
           echo
-          echo "[Console user]"
-          stat -f '%Su' /dev/console || true
+          echo "[Bundle version]"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$APP/Contents/Info.plist" || true
 
           echo
-          echo "[TCC database]"
-          TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
-
-          if [ -f "$TCC" ]; then
-            echo "TCC database exists."
-            ls -lh "$TCC"
-
-            echo
-            echo "[TCC services]"
-            sqlite3 "$TCC" \
-              "SELECT service, client, auth_value FROM access ORDER BY service, client;" \
-              2>&1 || true
-          else
-            echo "TCC database does not exist."
-          fi
+          echo "[Code signature]"
+          codesign -dv "$APP" 2>&1 || true
 
           echo
-          echo "[System privacy databases]"
-          find "$HOME/Library/Application Support/com.apple.TCC" \
-            -maxdepth 1 -type f -print 2>/dev/null || true
-
-          echo
-          echo "[AnyDesk]"
-          ps aux | grep -i '[A]nyDesk' || true
-
-          echo
-          echo "[WindowServer]"
-          pgrep -lf WindowServer || true
+          echo "[TCC AnyDesk status]"
+          tccutil reset ScreenCapture "$APP" 2>&1 || true
+          tccutil reset Accessibility "$APP" 2>&1 || true
 
       - name: Get AnyDesk information
         run: |
