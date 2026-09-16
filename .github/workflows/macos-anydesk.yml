@@ -97,6 +97,28 @@ jobs:
             echo "FAILED: screenshot was not created"
           fi
 
+      - name: GUI Window Test
+        run: |
+          echo "=== GUI WINDOW TEST ==="
+
+          open -a TextEdit
+
+          sleep 3
+
+          screencapture \
+            -x \
+            "$RUNNER_TEMP/capture/window-test.png"
+
+          echo "--- Screenshot ---"
+          file "$RUNNER_TEMP/capture/window-test.png"
+          ls -lh "$RUNNER_TEMP/capture/window-test.png"
+
+      - name: Upload GUI Window Test
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-gui-window-test
+          path: ${{ runner.temp }}/capture/window-test.png
+
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
