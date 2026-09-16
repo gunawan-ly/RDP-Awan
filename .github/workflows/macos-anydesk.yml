@@ -96,25 +96,49 @@ jobs:
           echo "=== AnyDesk log ==="
           cat /tmp/anydesk.log || true
 
-      - name: Check AnyDesk permissions
+      - name: Diagnose macOS permissions
         run: |
           echo "========================================"
-          echo "        ANYDESK PERMISSIONS"
+          echo "       MACOS PERMISSION DIAGNOSTIC"
           echo "========================================"
 
           echo
-          echo "[AnyDesk process]"
-          ps aux | grep -i '[A]nyDesk' || true
+          echo "[Current user]"
+          whoami
+
+          echo
+          echo "[Console user]"
+          stat -f '%Su' /dev/console || true
 
           echo
           echo "[TCC database]"
-          sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT service, client, auth_value FROM access WHERE client LIKE '%AnyDesk%';" \
-            2>&1 || true
+          TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+
+          if [ -f "$TCC" ]; then
+            echo "TCC database exists."
+            ls -lh "$TCC"
+
+            echo
+            echo "[TCC services]"
+            sqlite3 "$TCC" \
+              "SELECT service, client, auth_value FROM access ORDER BY service, client;" \
+              2>&1 || true
+          else
+            echo "TCC database does not exist."
+          fi
 
           echo
-          echo "[Screen capture processes]"
-          pgrep -lf 'AnyDesk|WindowServer|loginwindow' || true
+          echo "[System privacy databases]"
+          find "$HOME/Library/Application Support/com.apple.TCC" \
+            -maxdepth 1 -type f -print 2>/dev/null || true
+
+          echo
+          echo "[AnyDesk]"
+          ps aux | grep -i '[A]nyDesk' || true
+
+          echo
+          echo "[WindowServer]"
+          pgrep -lf WindowServer || true
 
       - name: Get AnyDesk information
         run: |
