@@ -97,6 +97,12 @@ jobs:
             echo "FAILED: screenshot was not created"
           fi
 
+      - name: Upload Screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-screen-test
+          path: ${{ runner.temp }}/capture/test.png
+
       - name: Process Environment
         run: |
           echo "=== PROCESS ENVIRONMENT ==="
