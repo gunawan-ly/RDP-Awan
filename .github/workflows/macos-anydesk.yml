@@ -96,6 +96,26 @@ jobs:
           echo "=== AnyDesk log ==="
           cat /tmp/anydesk.log || true
 
+      - name: Check AnyDesk permissions
+        run: |
+          echo "========================================"
+          echo "        ANYDESK PERMISSIONS"
+          echo "========================================"
+
+          echo
+          echo "[AnyDesk process]"
+          ps aux | grep -i '[A]nyDesk' || true
+
+          echo
+          echo "[TCC database]"
+          sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
+            "SELECT service, client, auth_value FROM access WHERE client LIKE '%AnyDesk%';" \
+            2>&1 || true
+
+          echo
+          echo "[Screen capture processes]"
+          pgrep -lf 'AnyDesk|WindowServer|loginwindow' || true
+
       - name: Get AnyDesk information
         run: |
           set -e
