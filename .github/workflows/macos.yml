@@ -1,4 +1,4 @@
-name: macOS AnyDesk
+name: MacOs Awan
 
 on:
   workflow_dispatch:
@@ -52,20 +52,28 @@ jobs:
           echo "[INFO] AnyDesk executable:"
           ls -l /Applications/AnyDesk.app/Contents/MacOS/AnyDesk
 
-      - name: Start AnyDesk
+            - name: Start AnyDesk
         run: |
           set -e
 
-          echo "[INFO] Starting AnyDesk..."
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          open -a "/Applications/AnyDesk.app"
+          echo "[INFO] Starting AnyDesk directly..."
+          "$ANYDESK" >/tmp/anydesk.log 2>&1 &
 
-          echo "[INFO] Waiting for AnyDesk to start..."
+          ANYDESK_PID=$!
+          echo "[INFO] AnyDesk PID: $ANYDESK_PID"
+
+          echo "[INFO] Waiting for AnyDesk..."
           sleep 10
 
           echo
           echo "=== AnyDesk processes ==="
           ps aux | grep -i '[A]nyDesk' || true
+
+          echo
+          echo "=== AnyDesk log ==="
+          cat /tmp/anydesk.log || true
 
       - name: Get AnyDesk information
         run: |
