@@ -1,0 +1,164 @@
+name: macOS AnyDesk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-anydesk:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check macOS environment
+        run: |
+          echo "=== macOS ==="
+          sw_vers
+
+          echo
+          echo "=== Architecture ==="
+          uname -m
+
+          echo
+          echo "=== User ==="
+          whoami
+
+          echo
+          echo "=== Hardware ==="
+          system_profiler SPHardwareDataType | head -20
+
+      - name: Download AnyDesk
+        run: |
+          set -e
+
+          echo "[INFO] Downloading AnyDesk..."
+
+          curl -L \
+            --fail \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 120 \
+            -o "$RUNNER_TEMP/AnyDesk.dmg" \
+            "https://download.anydesk.com/macos/AnyDesk.dmg"
+
+          ls -lh "$RUNNER_TEMP/AnyDesk.dmg"
+
+      - name: Install AnyDesk
+        run: |
+          set -e
+
+          echo "[INFO] Mounting AnyDesk DMG..."
+
+          hdiutil attach \
+            "$RUNNER_TEMP/AnyDesk.dmg" \
+            -nobrowse \
+            -quiet
+
+          echo "[INFO] Mounted volumes:"
+          ls -la /Volumes/
+
+          ANYDESK_VOLUME="$(find /Volumes -maxdepth 1 -type d -iname '*AnyDesk*' | head -1)"
+
+          if [ -z "$ANYDESK_VOLUME" ]; then
+            echo "[ERROR] AnyDesk volume not found."
+            exit 1
+          fi
+
+          echo "[INFO] AnyDesk volume: $ANYDESK_VOLUME"
+
+          if [ -d "$ANYDESK_VOLUME/AnyDesk.app" ]; then
+            echo "[INFO] Copying AnyDesk.app..."
+
+            rm -rf /Applications/AnyDesk.app
+
+            cp -R \
+              "$ANYDESK_VOLUME/AnyDesk.app" \
+              /Applications/AnyDesk.app
+          else
+            echo "[ERROR] AnyDesk.app not found."
+            exit 1
+          fi
+
+          hdiutil detach "$ANYDESK_VOLUME" -quiet || true
+
+          echo "[INFO] AnyDesk installed."
+
+          ls -ld /Applications/AnyDesk.app
+
+      - name: Start AnyDesk
+        run: |
+          set -e
+
+          echo "[INFO] Starting AnyDesk..."
+
+          open -a "/Applications/AnyDesk.app"
+
+          echo "[INFO] Waiting for AnyDesk..."
+          sleep 10
+
+          echo
+          echo "=== AnyDesk processes ==="
+          ps aux | grep -i '[A]nyDesk' || true
+
+      - name: Check AnyDesk
+        run: |
+          set -e
+
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
+
+          if [ ! -x "$ANYDESK" ]; then
+            echo "[ERROR] AnyDesk executable not found."
+            exit 1
+          fi
+
+          echo "=== AnyDesk version ==="
+          "$ANYDESK" --version || true
+
+          echo
+          echo "=== AnyDesk status ==="
+          "$ANYDESK" --get-status || true
+
+          echo
+          echo "=== AnyDesk ID ==="
+
+          ID=""
+
+          for i in {1..12}; do
+            ID="$("$ANYDESK" --get-id 2>/dev/null | tr -d '[:space:]' || true)"
+
+            if [ -n "$ID" ]; then
+              break
+            fi
+
+            echo "[INFO] AnyDesk ID not ready. Retry $i/12..."
+            sleep 5
+          done
+
+          if [ -z "$ID" ]; then
+            echo "[ERROR] Failed to obtain AnyDesk ID."
+            exit 1
+          fi
+
+          echo
+          echo "========================================"
+          echo "          ANYDESK CONNECTION"
+          echo "========================================"
+          echo "AnyDesk ID: $ID"
+          echo "========================================"
+          echo
+
+          echo "ANYDESK_ID=$ID" >> "$GITHUB_ENV"
+
+      - name: Keep runner alive
+        run: |
+          echo "========================================"
+          echo "AnyDesk is running."
+          echo
+          echo "AnyDesk ID: $ANYDESK_ID"
+          echo
+          echo "Keep-alive started."
+          echo "Cancel this workflow manually when finished."
+          echo "========================================"
+
+          while true; do
+            sleep 60
+          done
