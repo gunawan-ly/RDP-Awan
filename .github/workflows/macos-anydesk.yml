@@ -141,7 +141,7 @@ jobs:
         run: |
           echo "=== LAUNCH ANYDESK ==="
 
-          open -a AnyDesk
+          open "/Applications/AnyDesk.app"
 
           echo "Waiting for AnyDesk..."
           sleep 8
