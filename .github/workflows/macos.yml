@@ -1,4 +1,4 @@
-name: MacOs Awan
+name: MacOs
 
 on:
   workflow_dispatch:
