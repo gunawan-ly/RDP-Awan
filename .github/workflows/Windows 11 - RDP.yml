@@ -7,7 +7,6 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 350
 
     steps:
       - name: Checkout Repository
@@ -100,9 +99,13 @@ jobs:
         shell: pwsh
         run: |
           Write-Output "Runner aktif. Terhubung via Tailscale + Windows RDP (gunakan Windows App ke Tailscale IP di atas)..."
-          while ($true) {
+          # Loop dibatasi 350 menit supaya job selesai sendiri (status
+          # success) sebelum batas default GitHub 360 menit. Timeout job
+          # tidak dipasang, mengikuti default GitHub.
+          for ($i = 1; $i -le 350; $i++) {
               Start-Sleep -Seconds 60
           }
+          Write-Output "Batas 350 menit tercapai. Runner selesai."
 
       # 2. Save Cache di Akhir (Pasti Jalan Meskipun Di-Cancel)
       - name: Save User Folders (Desktop & Documents)
