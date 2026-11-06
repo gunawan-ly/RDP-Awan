@@ -1,0 +1,117 @@
+name: Windows 11 - SSH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Start Building...
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate SSH Credential Configuration
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          # Fail-fast sebelum setup password runneradmin. Nilai tidak pernah dicetak.
+          # Workflow SSH memakai secret yang SAMA dengan workflow RDP
+          # (RDP_PASSWORD) untuk password akun runneradmin — tidak perlu
+          # secret baru.
+          if ([string]::IsNullOrWhiteSpace($env:RDP_PASSWORD)) {
+              throw "RDP_PASSWORD GitHub Actions Secret is not configured."
+          }
+          Write-Output "SSH credential configuration: OK (target: runneradmin, secret: RDP_PASSWORD)."
+
+      # 1. Restore Cache di Awal
+      - name: Restore User Folders (Desktop & Documents)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            C:\Users\runneradmin\Desktop
+            C:\Users\runneradmin\Documents
+          key: ssh-workspace-cache-${{ github.run_id }}
+          restore-keys: |
+            ssh-workspace-cache-
+
+      - name: Downloading & Installing Essentials
+        run: cmd /c Downloads.bat
+
+      - name: Install & Connect Tailscale
+        shell: pwsh
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          # Unduh & Install Tailscale (mekanisme resmi, sama seperti workflow RDP)
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
+
+          # Jalankan Service & Login (tanpa mencetak auth key ke log)
+          # Hostname unik per-run dan berbeda dari workflow RDP agar run
+          # paralel tidak saling take-over nama di tailnet.
+          $env:Path += ";C:\Program Files\Tailscale"
+          tailscale up --authkey=$env:TAILSCALE_AUTHKEY --hostname="github-runner-ssh-${{ github.run_id }}"
+
+          Write-Output "Tailscale berhasil terhubung!"
+          tailscale ip -4
+
+      - name: Setup Windows SSH (Tailscale-only)
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          # OpenSSH Server native Windows + firewall Tailscale-only.
+          # SSH TIDAK diekspos ke public IP / Internet.
+          # Enable-SshHost.ps1 men-set password akun default runneradmin
+          # dari env di atas (tanpa membuat user baru; nilai tidak pernah
+          # dicetak ke log).
+          .\Enable-SshHost.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Enable-SshHost.ps1 gagal (exit $LASTEXITCODE)" }
+          .\Set-SshFirewallTailscale.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Set-SshFirewallTailscale.ps1 gagal (exit $LASTEXITCODE)" }
+
+      - name: Show SSH Connection Info
+        shell: pwsh
+        run: |
+          $env:Path += ";C:\Program Files\Tailscale"
+          $ip = (tailscale ip -4 | Select-Object -First 1)
+          $name = ""
+          try {
+              $st = tailscale status --json | ConvertFrom-Json
+              if ($st.Self -and $st.Self.DNSName) { $name = $st.Self.DNSName.TrimEnd('.') }
+          } catch {}
+          Write-Output "========================================"
+          Write-Output "SSH READY"
+          Write-Output ""
+          Write-Output "Connect to (via Tailscale):"
+          Write-Output "  ssh runneradmin@$ip"
+          if ($name) { Write-Output "  ssh runneradmin@$name" }
+          Write-Output ""
+          Write-Output "Password: nilai GitHub Secret RDP_PASSWORD."
+          Write-Output "(Jangan gunakan public IP. SSH hanya via tailnet Tailscale.)"
+          Write-Output "========================================"
+
+      - name: Keep Alive Loop
+        shell: pwsh
+        run: |
+          Write-Output "Runner aktif. Terhubung via Tailscale + Windows SSH (lihat blok SSH READY di atas)..."
+          # Loop dibatasi 350 menit supaya job selesai sendiri (status
+          # success) sebelum batas default GitHub 360 menit. Timeout job
+          # tidak dipasang, mengikuti default GitHub.
+          for ($i = 1; $i -le 350; $i++) {
+              Start-Sleep -Seconds 60
+          }
+          Write-Output "Batas 350 menit tercapai. Runner selesai."
+
+      # 2. Save Cache di Akhir (Pasti Jalan Meskipun Di-Cancel)
+      - name: Save User Folders (Desktop & Documents)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\Users\runneradmin\Desktop
+            C:\Users\runneradmin\Documents
+          key: ssh-workspace-cache-${{ github.run_id }}
